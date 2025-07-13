@@ -26,6 +26,7 @@ except Exception as e:
     
     # Fallback to the files we saw in the download output
     csv_files = [
+        "subtitle_chieng.csv",
         "track1_train_disdim.csv",
         "track2_train_mercaptionplus.csv", 
         "track2_train_ovmerd.csv",
@@ -43,30 +44,69 @@ for csv_file in csv_files:
     try:
         print(f"\nLoading {csv_file}...")
         
-        # Load without specifying split to see all available splits
-        dataset_dict = load_dataset(
-            "MERChallenge/MER2025", 
-            data_files=csv_file
-        )
-        
-        # Create a clean name for the dataset
-        dataset_name = csv_file.replace('.csv', '')
-        datasets[dataset_name] = dataset_dict
-        
-        print(f"✓ Successfully loaded {csv_file}")
-        print(f"  Available splits: {list(dataset_dict.keys())}")
-        
-        # Show details for each split
-        for split_name, split_data in dataset_dict.items():
-            print(f"  {split_name} split:")
-            print(f"    - Examples: {len(split_data)}")
-            print(f"    - Features: {split_data.features}")
-            print(f"    - Column names: {list(split_data.features.keys())}")
+        # Special handling for subtitle_chieng.csv which has encoding issues with datasets library
+        if csv_file == "subtitle_chieng.csv":
+            print(f"  Using pandas fallback for {csv_file} due to encoding issues...")
+            from huggingface_hub import hf_hub_download
             
-            # Show first example if available
-            if len(split_data) > 0:
-                print(f"    - First example keys: {list(split_data[0].keys())}")
-                print(f"    - First example: {split_data[0]}")
+            # Download the file first
+            file_path = hf_hub_download(
+                repo_id="MERChallenge/MER2025",
+                filename=csv_file,
+                repo_type="dataset"
+            )
+            
+            # Load with pandas
+            import pandas as pd
+            df = pd.read_csv(file_path, encoding='utf-8')
+            
+            # Convert to datasets format
+            from datasets import Dataset
+            dataset_dict = {"train": Dataset.from_pandas(df)}
+            
+            # Create a clean name for the dataset
+            dataset_name = csv_file.replace('.csv', '')
+            datasets[dataset_name] = dataset_dict
+            
+            print(f"✓ Successfully loaded {csv_file} using pandas fallback")
+            print(f"  Available splits: {list(dataset_dict.keys())}")
+            
+            # Show details for each split
+            for split_name, split_data in dataset_dict.items():
+                print(f"  {split_name} split:")
+                print(f"    - Examples: {len(split_data)}")
+                print(f"    - Features: {split_data.features}")
+                print(f"    - Column names: {list(split_data.features.keys())}")
+                
+                # Show first example if available
+                if len(split_data) > 0:
+                    print(f"    - First example keys: {list(split_data[0].keys())}")
+                    print(f"    - First example: {split_data[0]}")
+        else:
+            # Load without specifying split to see all available splits
+            dataset_dict = load_dataset(
+                "MERChallenge/MER2025", 
+                data_files=csv_file
+            )
+            
+            # Create a clean name for the dataset
+            dataset_name = csv_file.replace('.csv', '')
+            datasets[dataset_name] = dataset_dict
+            
+            print(f"✓ Successfully loaded {csv_file}")
+            print(f"  Available splits: {list(dataset_dict.keys())}")
+            
+            # Show details for each split
+            for split_name, split_data in dataset_dict.items():
+                print(f"  {split_name} split:")
+                print(f"    - Examples: {len(split_data)}")
+                print(f"    - Features: {split_data.features}")
+                print(f"    - Column names: {list(split_data.features.keys())}")
+                
+                # Show first example if available
+                if len(split_data) > 0:
+                    print(f"    - First example keys: {list(split_data[0].keys())}")
+                    print(f"    - First example: {split_data[0]}")
             
     except Exception as e:
         print(f"✗ Failed to load {csv_file}: {e}")
@@ -178,3 +218,105 @@ else:
         print("  - track2_train_mercaptionplus not loaded")
     if 'track3_train_mercaptionplus' not in datasets:
         print("  - track3_train_mercaptionplus not loaded")
+
+# MERGE SUBTITLE DATA (CHINESE + ENGLISH)
+print("\n" + "="*70)
+print("PROCESSING SUBTITLE DATA (CHINESE + ENGLISH)")
+print("="*70)
+
+if 'subtitle_chieng' in datasets:
+    subtitle_data = datasets['subtitle_chieng']['train']
+    print(f"Subtitle dataset: {len(subtitle_data)} examples")
+    
+    # Convert to pandas DataFrame
+    subtitle_df = subtitle_data.to_pandas()
+    print(f"Subtitle columns: {list(subtitle_df.columns)}")
+    
+    print(f"✓ Processing Chinese and English subtitle columns separately")
+    
+    # Show sample of subtitle data
+    print(f"\nSample of subtitle data (first 3 entries):")
+    for i in range(min(3, len(subtitle_df))):
+        row = subtitle_df.iloc[i]
+        print(f"  Entry {i+1}:")
+        print(f"    name: {row['name']}")
+        print(f"    chinese: {row['chinese'] if pd.notna(row['chinese']) else 'N/A'}")
+        print(f"    english: {row['english'] if pd.notna(row['english']) else 'N/A'}")
+        print()
+    
+    # Create subtitle dictionary indexed by name
+    subtitle_by_name = {}
+    for _, row in subtitle_df.iterrows():
+        name = row['name']
+        subtitle_by_name[name] = {
+            'name': name,
+            'chinese': row['chinese'] if pd.notna(row['chinese']) else None,
+            'english': row['english'] if pd.notna(row['english']) else None
+        }
+    
+    print(f"✓ Created subtitle name-indexed dictionary with {len(subtitle_by_name)} entries")
+    
+    # Try to merge subtitle data with existing merged data if available
+    if 'merged_by_name' in locals():
+        print(f"\n🔗 INTEGRATING SUBTITLES WITH EXISTING MERGED DATA")
+        print("="*60)
+        
+        # Find common names
+        merged_names = set(merged_by_name.keys())
+        subtitle_names = set(subtitle_by_name.keys())
+        common_subtitle_names = merged_names.intersection(subtitle_names)
+        
+        print(f"- Merged dataset entries: {len(merged_names)}")
+        print(f"- Subtitle dataset entries: {len(subtitle_names)}")
+        print(f"- Common names with subtitles: {len(common_subtitle_names)}")
+        
+        # Add subtitle data to existing merged data
+        enhanced_merged_by_name = {}
+        for name, data in merged_by_name.items():
+            enhanced_data = data.copy()
+            
+            # Add subtitle information if available
+            if name in subtitle_by_name:
+                subtitle_info = subtitle_by_name[name]
+                enhanced_data.update({
+                    'chinese_subtitle': subtitle_info['chinese'],
+                    'english_subtitle': subtitle_info['english']
+                })
+            else:
+                enhanced_data.update({
+                    'chinese_subtitle': None,
+                    'english_subtitle': None
+                })
+            
+            enhanced_merged_by_name[name] = enhanced_data
+        
+        print(f"✓ Enhanced merged data with subtitle information")
+        
+        # Show sample of enhanced data
+        print(f"\nSample of enhanced data with subtitles:")
+        sample_names_with_subtitles = [name for name in list(enhanced_merged_by_name.keys())[:5] 
+                                     if enhanced_merged_by_name[name]['chinese_subtitle'] or enhanced_merged_by_name[name]['english_subtitle']]
+        
+        for name in sample_names_with_subtitles[:2]:
+            data = enhanced_merged_by_name[name]
+            print(f"  Name: {name}")
+            print(f"    openset: {data.get('openset', 'N/A')}")
+            print(f"    reason: {data.get('reason', 'N/A')[:100]}..." if data.get('reason') and len(data.get('reason', '')) > 100 else f"    reason: {data.get('reason', 'N/A')}")
+            print(f"    chinese_subtitle: {data.get('chinese_subtitle', 'N/A')}")
+            print(f"    english_subtitle: {data.get('english_subtitle', 'N/A')}")
+            print()
+        
+        # Make enhanced data globally accessible
+        globals()['enhanced_merged_by_name'] = enhanced_merged_by_name
+        globals()['subtitle_by_name'] = subtitle_by_name
+        
+        print(f"✓ Enhanced data is now available as:")
+        print(f"  - 'enhanced_merged_by_name': merged data with subtitle information")
+        print(f"  - 'subtitle_by_name': subtitle data indexed by name")
+    
+    else:
+        print("ℹ️  No existing merged data found, subtitle data available separately")
+        globals()['subtitle_by_name'] = subtitle_by_name
+        
+else:
+    print("❌ Subtitle dataset not found or failed to load")
